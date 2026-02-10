@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || "";
 const TORN_API_BASE_URL = process.env.TORN_API_BASE_URL || "https://api.torn.com/v2";
-const DISCORD_APP_ID = process.env.APP_ID || "";
+const DISCORD_APP_ID = process.env.APP_ID || process.env.DISCORD_APP_ID || "";
 
 const InteractionType = {
   PING: 1,
