@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 const token = process.env.DISCORD_BOT_TOKEN;
-const appId = process.env.DISCORD_APP_ID;
+const appId = process.env.APP_ID;
 
 if (!token || !appId) {
   console.error("Missing DISCORD_BOT_TOKEN or DISCORD_APP_ID.");
