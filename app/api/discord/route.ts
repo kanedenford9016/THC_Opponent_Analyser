@@ -170,7 +170,11 @@ function getTextValue(components: any[], customId: string) {
   return "";
 }
 
-async function sendFollowup(interaction: any, content: string, attachment?: { filename: string; bytes: ArrayBuffer }) {
+async function sendFollowup(
+  interaction: any,
+  content: string,
+  options?: { attachment?: { filename: string; bytes: ArrayBuffer }; components?: any }
+) {
   console.log("Sending followup for interaction", interaction.id);
   if (!DISCORD_APP_ID || !interaction?.token) {
     console.log("Missing DISCORD_APP_ID or interaction token", {
@@ -184,6 +188,9 @@ async function sendFollowup(interaction: any, content: string, attachment?: { fi
   console.log("Webhook URL: [redacted]");
   const flags = makeEphemeralFlags(interaction);
 
+  const attachment = options?.attachment;
+  const components = options?.components;
+
   if (!attachment) {
     console.log("Sending text followup");
     await fetch(webhookUrl, {
@@ -194,6 +201,7 @@ async function sendFollowup(interaction: any, content: string, attachment?: { fi
       body: JSON.stringify({
         content,
         flags,
+        components,
       }),
     });
     return;
@@ -202,6 +210,7 @@ async function sendFollowup(interaction: any, content: string, attachment?: { fi
   const payload = {
     content,
     flags,
+    components,
     attachments: [
       {
         id: 0,
@@ -423,40 +432,32 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
 }
 
 async function handleJobStatus(interaction: any, jobId: string) {
+  void processJobStatus(interaction, jobId);
+  return jsonResponse({
+    type: InteractionResponseType.DEFERRED_MESSAGE_UPDATE,
+  });
+}
+
+async function processJobStatus(interaction: any, jobId: string) {
   const job = await getJob(jobId);
   if (!job) {
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content: "Job not found or expired.",
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
+    await sendFollowup(interaction, "Job not found or expired.");
+    return;
   }
 
   if (job.status === "error") {
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content: `Job failed: ${job.error || "unknown error"}`,
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
+    await sendFollowup(interaction, `Job failed: ${job.error || "unknown error"}`);
+    return;
   }
 
   let memberIds = job.member_ids;
-  if (typeof memberIds === 'string') {
+  if (typeof memberIds === "string") {
     memberIds = JSON.parse(memberIds);
   }
   if (!memberIds || !Array.isArray(memberIds)) {
     await updateJob(jobId, { status: "error", error: "Invalid stored IDs." });
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content: "Invalid stored IDs.",
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
+    await sendFollowup(interaction, "Invalid stored IDs.");
+    return;
   }
 
   if (job.status === "queued") {
@@ -487,28 +488,18 @@ async function handleJobStatus(interaction: any, jobId: string) {
   });
 
   if (!isComplete) {
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content: `Progress: ${newIndex}/${memberIds.length}. Click Check Status to continue.`,
-        components: buildJobStatusButtons(jobId),
-        flags: makeEphemeralFlags(interaction),
-      },
+    await sendFollowup(interaction, `Progress: ${newIndex}/${memberIds.length}. Click Check Status to continue.`, {
+      components: buildJobStatusButtons(jobId),
     });
+    return;
   }
 
   const pdfBuffer = generatePdfReport(mergedResults);
   await deleteJob(jobId);
   await sendFollowup(interaction, "Here is your member analysis report.", {
-    filename: `member_vetting_report_${Date.now()}.pdf`,
-    bytes: pdfBuffer,
-  });
-
-  return jsonResponse({
-    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: {
-      content: "Report generated and sent.",
-      flags: makeEphemeralFlags(interaction),
+    attachment: {
+      filename: `member_vetting_report_${Date.now()}.pdf`,
+      bytes: pdfBuffer,
     },
   });
 }
