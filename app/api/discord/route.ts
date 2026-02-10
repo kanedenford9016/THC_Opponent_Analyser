@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 import { verifyKey } from "discord-interactions";
 import {
   analyzeMember,
@@ -50,6 +49,15 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function safeWaitUntil(promise: Promise<void>) {
+  const globalWaitUntil = (globalThis as { waitUntil?: (p: Promise<void>) => void }).waitUntil;
+  if (typeof globalWaitUntil === "function") {
+    globalWaitUntil(promise);
+  } else {
+    void promise;
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -456,7 +464,7 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
   const interactionToken = interaction.token;
   const flags = makeEphemeralFlags(interaction);
 
-  waitUntil(
+  safeWaitUntil(
     (async () => {
       try {
         console.log("[TARGET_MODAL] queue start", parsed.ids.length);
