@@ -341,6 +341,9 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
     });
   }
 
+  const keepAlive = setInterval(() => {}, 500); // Keep function alive
+  console.log("KeepAlive started for interaction", interaction.id);
+
   console.log("About to start deferred processing");
   process.nextTick(async () => {
     console.log("Inside process.nextTick for interaction", interaction.id);
@@ -416,6 +419,9 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
         interaction,
         error instanceof Error ? error.message : "Failed to generate report."
       );
+    } finally {
+      clearInterval(keepAlive);
+      console.log("KeepAlive cleared for interaction", interaction.id);
     }
   });
 
