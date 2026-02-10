@@ -52,6 +52,15 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 function buildButtons(components: any[]) {
   return [{ type: 1, components }];
 }
@@ -155,6 +164,10 @@ function getTextValue(components: any[], customId: string) {
 async function sendFollowup(interaction: any, content: string, attachment?: { filename: string; bytes: ArrayBuffer }) {
   console.log("Sending followup for interaction", interaction.id);
   if (!DISCORD_APP_ID || !interaction?.token) {
+    console.log("Missing DISCORD_APP_ID or interaction token", {
+      hasAppId: Boolean(DISCORD_APP_ID),
+      hasToken: Boolean(interaction?.token),
+    });
     return;
   }
 
@@ -345,11 +358,12 @@ async function handleTargetModal(interaction: any, targetType: string) {
     try {
       let session = null;
       try {
-        session = await getDiscordSession(userId);
+        console.log("Fetching session for user", userId);
+        session = await withTimeout(getDiscordSession(userId), 5000, "getDiscordSession");
         console.log("Session retrieved", !!session);
         if (session) console.log("Session apiKey present", !!session.apiKey);
       } catch (error) {
-        console.log("Error getting session", error.message);
+        console.log("Error getting session", error instanceof Error ? error.message : error);
         await sendFollowup(
           interaction,
           "Session storage is unavailable right now. Please try again in a few minutes."
@@ -370,7 +384,11 @@ async function handleTargetModal(interaction: any, targetType: string) {
       try {
         console.log("Parsing IDs, targetType:", targetType, "rawIds:", rawIds);
         if (targetType === "faction") {
-          memberIds = await fetchFactionMemberIds(session.apiKey, rawIds, TORN_API_BASE_URL);
+          memberIds = await withTimeout(
+            fetchFactionMemberIds(session.apiKey, rawIds, TORN_API_BASE_URL),
+            8000,
+            "fetchFactionMemberIds"
+          );
           console.log("Fetched faction memberIds", memberIds.length);
         } else {
           memberIds = parseIds(rawIds);
@@ -390,7 +408,11 @@ async function handleTargetModal(interaction: any, targetType: string) {
       }
 
       const analysisPromises = memberIds.map(memberId =>
-        analyzeMember(session.apiKey, memberId, TORN_API_BASE_URL)
+        withTimeout(
+          analyzeMember(session.apiKey, memberId, TORN_API_BASE_URL),
+          8000,
+          `analyzeMember:${memberId}`
+        )
       );
       console.log("Starting analysis for", memberIds.length, "members");
       const results = await Promise.allSettled(analysisPromises);
