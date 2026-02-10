@@ -417,7 +417,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
       }
 
       const pdfBuffer = generatePdfReport(analyses);
-      console.log("PDF generated, size:", pdfBuffer.length);
+      console.log("PDF generated, size:", pdfBuffer.byteLength);
       const filename = `member_vetting_report_${Date.now()}.pdf`;
       console.log("Sending PDF followup");
       await sendFollowup(interaction, "Here is your member analysis report.", {
