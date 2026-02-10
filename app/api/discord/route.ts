@@ -15,7 +15,7 @@ import {
 export const runtime = "nodejs";
 
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || "";
-const BASE_URL = process.env.BASE_URL || "https://api.torn.com/v2";
+const TORN_API_BASE_URL = process.env.TORN_API_BASE_URL || "https://api.torn.com/v2";
 const DISCORD_APP_ID = process.env.DISCORD_APP_ID || "";
 const SESSION_TTL_SECONDS = 30 * 60;
 
@@ -355,7 +355,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
       let memberIds = [];
       try {
         if (targetType === "faction") {
-          memberIds = await fetchFactionMemberIds(session.apiKey, rawIds, BASE_URL);
+          memberIds = await fetchFactionMemberIds(session.apiKey, rawIds, TORN_API_BASE_URL);
         } else {
           memberIds = parseIds(rawIds);
         }
@@ -373,7 +373,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
 
       const analyses = [];
       for (const memberId of memberIds) {
-        const analysis = await analyzeMember(session.apiKey, memberId, BASE_URL);
+        const analysis = await analyzeMember(session.apiKey, memberId, TORN_API_BASE_URL);
         analyses.push(analysis);
       }
 
