@@ -371,10 +371,17 @@ async function handleTargetModal(interaction: any, targetType: string) {
         memberIds = memberIds.slice(0, 25);
       }
 
-      const analyses = [];
-      for (const memberId of memberIds) {
-        const analysis = await analyzeMember(session.apiKey, memberId, TORN_API_BASE_URL);
-        analyses.push(analysis);
+      const analysisPromises = memberIds.map(memberId =>
+        analyzeMember(session.apiKey, memberId, TORN_API_BASE_URL)
+      );
+      const results = await Promise.allSettled(analysisPromises);
+      const analyses = results
+        .filter(result => result.status === 'fulfilled')
+        .map(result => result.value);
+
+      if (analyses.length === 0) {
+        await sendFollowup(interaction, "Failed to analyze any members.");
+        return;
       }
 
       try {
