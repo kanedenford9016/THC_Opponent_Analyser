@@ -22,18 +22,23 @@ export function parseOpponentIds(raw: string): ParseIdsResult {
   const ids: string[] = [];
 
   for (const t of tokens) {
-    if (!/^\d+$/.test(t)) {
+    const digits = t.replace(/[^\d]/g, "");
+    if (!digits) {
+      invalid.push(t);
+      continue;
+    }
+    if (digits.length >= 15) {
       invalid.push(t);
       continue;
     }
     // Keep as string (safe for long ids)
-    ids.push(t);
+    ids.push(digits);
   }
 
   if (invalid.length) {
     return {
       ok: false,
-      reason: "Some entries are not pure numbers.",
+      reason: "Some entries are not valid IDs.",
       invalidTokens: invalid.slice(0, 10),
     };
   }
@@ -42,16 +47,6 @@ export function parseOpponentIds(raw: string): ParseIdsResult {
   const uniq = Array.from(new Set(ids));
 
   // Optional: sanity checks to catch wrong-id-type pastes (Discord snowflakes etc.)
-  const looksLikeDiscord = uniq.some((x) => x.length >= 15);
-  if (looksLikeDiscord) {
-    return {
-      ok: false,
-      reason:
-        "Those look like Discord IDs (very long). I need Opponent IDs (numeric IDs from the game/site), e.g. 1234567.",
-      invalidTokens: uniq.filter((x) => x.length >= 15),
-    };
-  }
-
   // Optional: cap quantity to protect your API rate/worker time
   if (uniq.length > 50) {
     return { ok: false, reason: "Too many IDs. Max 50 per job.", invalidTokens: [] };

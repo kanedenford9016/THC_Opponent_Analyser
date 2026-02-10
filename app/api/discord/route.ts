@@ -512,7 +512,9 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
 }
 
 async function handleJobStatus(interaction: any, jobId: string) {
-  void processJobStatus(interaction, jobId);
+  void processJobStatus(interaction, jobId).catch((error) => {
+    console.error("[JOB_STATUS] Unhandled failure", error);
+  });
   return jsonResponse({
     type: InteractionResponseType.DEFERRED_MESSAGE_UPDATE,
   });
