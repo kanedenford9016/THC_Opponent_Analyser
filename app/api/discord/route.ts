@@ -6,12 +6,14 @@ import {
   generatePdfReport,
   parseIds,
 } from "../../../lib/discord_member_analysis";
+import { createJob, deleteJob, getJob, updateJob } from "../../../lib/discord_jobs";
 
 export const runtime = "nodejs";
 
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || "";
 const TORN_API_BASE_URL = process.env.TORN_API_BASE_URL || "https://api.torn.com/v2";
 const DISCORD_APP_ID = process.env.APP_ID || process.env.DISCORD_APP_ID || "";
+const JOB_BATCH_SIZE = 2;
 
 const InteractionType = {
   PING: 1,
@@ -81,14 +83,14 @@ function buildTargetTypeButtons(apiKey: string) {
     {
       type: 2,
       style: 1,
-      label: "Faction ID",
-      custom_id: `target_type:faction:${apiKey}`,
+      label: "Opponent IDs",
+      custom_id: `target_type:opponents:${apiKey}`,
     },
     {
       type: 2,
       style: 2,
-      label: "Opponent IDs",
-      custom_id: `target_type:opponents:${apiKey}`,
+      label: "Faction ID (slow)",
+      custom_id: `target_type:faction:${apiKey}`,
     },
   ]);
 }
@@ -142,6 +144,17 @@ function buildTargetModal(targetType: string, apiKey: string) {
       },
     ],
   };
+}
+
+function buildJobStatusButtons(jobId: string) {
+  return buildButtons([
+    {
+      type: 2,
+      style: 1,
+      label: "Check Status",
+      custom_id: `job_status:${jobId}`,
+    },
+  ]);
 }
 
 function getTextValue(components: any[], customId: string) {
@@ -275,6 +288,11 @@ async function handleMessageComponent(interaction: any) {
     });
   }
 
+  if (customId.startsWith("job_status:")) {
+    const jobId = customId.split(":")[1];
+    return handleJobStatus(interaction, jobId);
+  }
+
   return jsonResponse({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
@@ -341,95 +359,126 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
     });
   }
 
-  const keepAlive = setInterval(() => {}, 500); // Keep function alive
-  console.log("KeepAlive started for interaction", interaction.id);
+  if (!apiKey) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Missing API key. Run /member_analysis again.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
 
-  console.log("About to start deferred processing");
-  process.nextTick(async () => {
-    console.log("Inside process.nextTick for interaction", interaction.id);
-    console.log("Starting deferred processing for interaction", interaction.id);
-    try {
-      let memberIds = [];
-      try {
-        if (!apiKey) {
-          await sendFollowup(
-            interaction,
-            "Missing API key. Run /member_analysis again."
-          );
-          return;
-        }
+  if (targetType === "faction") {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Faction lookups are slow on Vercel. Please use Opponent IDs for now.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
 
-        console.log("Parsing IDs, targetType:", targetType, "rawIds:", rawIds);
-        if (targetType === "faction") {
-          memberIds = await withTimeout(
-            fetchFactionMemberIds(apiKey, rawIds, TORN_API_BASE_URL),
-            8000,
-            "fetchFactionMemberIds"
-          );
-          console.log("Fetched faction memberIds", memberIds.length);
-        } else {
-          memberIds = parseIds(rawIds);
-          console.log("Parsed opponent memberIds", memberIds.length);
-        }
-      } catch (error) {
-        console.log("Error parsing/fetching IDs", error instanceof Error ? error.message : error);
-        await sendFollowup(
-          interaction,
-          error instanceof Error ? error.message : "Invalid IDs."
-        );
-        return;
-      }
-
-      if (memberIds.length > 5) {
-        memberIds = memberIds.slice(0, 5);
-      }
-
-      const analysisPromises = memberIds.map(memberId =>
-        withTimeout(
-          analyzeMember(apiKey, memberId, TORN_API_BASE_URL),
-          8000,
-          `analyzeMember:${memberId}`
-        )
-      );
-      console.log("Starting analysis for", memberIds.length, "members");
-      const results = await Promise.allSettled(analysisPromises);
-      console.log("Analysis completed, results:", results.length);
-      const analyses = results
-        .filter(result => result.status === 'fulfilled')
-        .map(result => result.value);
-      console.log("Successful analyses:", analyses.length);
-
-      if (analyses.length === 0) {
-        console.log("No successful analyses, sending error");
-        await sendFollowup(interaction, "Failed to analyze any members.");
-        return;
-      }
-
-      const pdfBuffer = generatePdfReport(analyses);
-      console.log("PDF generated, size:", pdfBuffer.byteLength);
-      const filename = `member_vetting_report_${Date.now()}.pdf`;
-      console.log("Sending PDF followup");
-      await sendFollowup(interaction, "Here is your member analysis report.", {
-        filename,
-        bytes: pdfBuffer,
-      });
-    } catch (error) {
-      console.log("Error in deferred processing", error.message);
-      await sendFollowup(
-        interaction,
-        error instanceof Error ? error.message : "Failed to generate report."
-      );
-    } finally {
-      clearInterval(keepAlive);
-      console.log("KeepAlive cleared for interaction", interaction.id);
-    }
+  const jobId = await createJob({
+    userId,
+    apiKey,
+    targetType,
+    rawIds,
   });
 
-  console.log("Sending defer response for interaction", interaction.id);
+  return jsonResponse({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      content: `Job queued. Click Check Status to process (job: ${jobId}).`,
+      components: buildJobStatusButtons(jobId),
+      flags: makeEphemeralFlags(interaction),
+    },
+  });
+}
+
+async function handleJobStatus(interaction: any, jobId: string) {
+  const job = await getJob(jobId);
+  if (!job) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Job not found or expired.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  if (job.status === "error") {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: `Job failed: ${job.error || "unknown error"}`,
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  let memberIds = job.member_ids || null;
+  if (!memberIds) {
+    try {
+      memberIds = parseIds(job.raw_ids);
+      await updateJob(jobId, { member_ids: memberIds, next_index: 0, status: "running" });
+    } catch (error) {
+      await updateJob(jobId, { status: "error", error: "Invalid IDs." });
+      return jsonResponse({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: "Invalid IDs.",
+          flags: makeEphemeralFlags(interaction),
+        },
+      });
+    }
+  }
+
+  const nextIndex = Number(job.next_index || 0);
+  const batch = memberIds.slice(nextIndex, nextIndex + JOB_BATCH_SIZE);
+  const analysisPromises = batch.map((memberId: string) =>
+    analyzeMember(job.api_key, memberId, TORN_API_BASE_URL)
+  );
+
+  const results = await Promise.allSettled(analysisPromises);
+  const successes = results
+    .filter((result) => result.status === "fulfilled")
+    .map((result: any) => result.value);
+
+  const existingResults = Array.isArray(job.results) ? job.results : [];
+  const mergedResults = existingResults.concat(successes);
+
+  const newIndex = nextIndex + batch.length;
+  const isComplete = newIndex >= memberIds.length;
+  await updateJob(jobId, {
+    results: mergedResults,
+    next_index: newIndex,
+    status: isComplete ? "complete" : "running",
+  });
+
+  if (!isComplete) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: `Progress: ${newIndex}/${memberIds.length}. Click Check Status to continue.`,
+        components: buildJobStatusButtons(jobId),
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  const pdfBuffer = generatePdfReport(mergedResults);
+  await deleteJob(jobId);
+  await sendFollowup(interaction, "Here is your member analysis report.", {
+    filename: `member_vetting_report_${Date.now()}.pdf`,
+    bytes: pdfBuffer,
+  });
 
   return jsonResponse({
-    type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
+      content: "Report generated and sent.",
       flags: makeEphemeralFlags(interaction),
     },
   });
