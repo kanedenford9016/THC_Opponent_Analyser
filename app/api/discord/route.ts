@@ -181,29 +181,38 @@ function getTextValue(components: any[], customId: string) {
 }
 
 async function postDiscordFollowup(webhookUrl: string, payload: RequestInit) {
-  const res = await fetch(webhookUrl, payload);
-  const text = await res.text().catch(() => "");
+  try {
+    const res = await fetch(webhookUrl, payload);
+    const text = await res.text().catch(() => "");
 
-  if (!res.ok) {
-    console.error("[DISCORD_WEBHOOK] FAILED", res.status, text.slice(0, 2000));
-    throw new Error(`Discord webhook failed: ${res.status}`);
+    if (!res.ok) {
+      console.error("[DISCORD_WEBHOOK] FAILED", res.status, text.slice(0, 2000));
+      throw new Error(`Discord webhook failed: ${res.status}`);
+    }
+
+    console.log("[DISCORD_WEBHOOK] OK", res.status, text.slice(0, 300));
+  } catch (error) {
+    console.error("[DISCORD_WEBHOOK] ERROR", error);
+    throw error;
   }
-
-  console.log("[DISCORD_WEBHOOK] OK", res.status, text.slice(0, 300));
 }
 
 async function editOriginalResponse(appId: string, interactionToken: string, body: any) {
   const url = `https://discord.com/api/v10/webhooks/${appId}/${interactionToken}/messages/@original`;
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text().catch(() => "");
-  if (!res.ok) {
-    console.error("[EDIT_ORIGINAL] FAILED", res.status, text.slice(0, 2000));
-  } else {
-    console.log("[EDIT_ORIGINAL] OK", res.status);
+  try {
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      console.error("[EDIT_ORIGINAL] FAILED", res.status, text.slice(0, 2000));
+    } else {
+      console.log("[EDIT_ORIGINAL] OK", res.status);
+    }
+  } catch (error) {
+    console.error("[EDIT_ORIGINAL] ERROR", error);
   }
 }
 
