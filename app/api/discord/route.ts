@@ -153,14 +153,17 @@ function getTextValue(components: any[], customId: string) {
 }
 
 async function sendFollowup(interaction: any, content: string, attachment?: { filename: string; bytes: ArrayBuffer }) {
+  console.log("Sending followup for interaction", interaction.id);
   if (!DISCORD_APP_ID || !interaction?.token) {
     return;
   }
 
   const webhookUrl = `https://discord.com/api/v10/webhooks/${DISCORD_APP_ID}/${interaction.token}`;
+  console.log("Webhook URL:", webhookUrl);
   const flags = makeEphemeralFlags(interaction);
 
   if (!attachment) {
+    console.log("Sending text followup");
     await fetch(webhookUrl, {
       method: "POST",
       headers: {
@@ -193,6 +196,7 @@ async function sendFollowup(interaction: any, content: string, attachment?: { fi
     attachment.filename
   );
 
+  console.log("Sending attachment followup");
   await fetch(webhookUrl, {
     method: "POST",
     body: form,
@@ -332,6 +336,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
   }
 
   setImmediate(async () => {
+    console.log("Starting deferred processing for interaction", interaction.id);
     try {
       let session = null;
       try {
