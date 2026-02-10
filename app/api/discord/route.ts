@@ -331,7 +331,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
     });
   }
 
-  setTimeout(async () => {
+  setImmediate(async () => {
     try {
       let session = null;
       try {
@@ -367,8 +367,8 @@ async function handleTargetModal(interaction: any, targetType: string) {
         return;
       }
 
-      if (memberIds.length > 25) {
-        memberIds = memberIds.slice(0, 25);
+      if (memberIds.length > 5) {
+        memberIds = memberIds.slice(0, 5);
       }
 
       const analysisPromises = memberIds.map(memberId =>
@@ -406,7 +406,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
         error instanceof Error ? error.message : "Failed to generate report."
       );
     }
-  }, 0);
+  });
 
   return jsonResponse({
     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
