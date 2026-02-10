@@ -429,6 +429,7 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
 
   if (!parsed.ok) {
     const errorResult = parsed as { ok: false; reason: string; invalidTokens: string[] };
+    console.log("[TARGET_MODAL] parse failed", errorResult.reason, errorResult.invalidTokens);
     const extra =
       errorResult.invalidTokens.length
         ? `\nInvalid: ${errorResult.invalidTokens.join(", ")}`
@@ -444,6 +445,7 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
   }
 
   if (!apiKey) {
+    console.log("[TARGET_MODAL] missing apiKey");
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
@@ -454,6 +456,7 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
   }
 
   if (targetType === "faction") {
+    console.log("[TARGET_MODAL] faction target blocked");
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
@@ -464,6 +467,10 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
   }
 
   if (!DISCORD_APP_ID || !interaction?.token) {
+    console.log("[TARGET_MODAL] missing app id or interaction token", {
+      hasAppId: Boolean(DISCORD_APP_ID),
+      hasToken: Boolean(interaction?.token),
+    });
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
@@ -475,6 +482,7 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
 
   const interactionToken = interaction.token;
   const flags = makeEphemeralFlags(interaction);
+  console.log("[TARGET_MODAL] acking modal", { userId, targetType, count: parsed.ids.length });
 
   safeWaitUntil(
     (async () => {
@@ -493,6 +501,7 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
           components: buildJobStatusButtons(jobId),
           flags,
         });
+        console.log("[TARGET_MODAL] original response updated", jobId);
 
         // Start processing immediately so users do not need to click the button.
         void processJobStatus(interaction, jobId).catch((err) => {
@@ -615,6 +624,10 @@ async function processWithoutQueue(
       analyzeMember(apiKey, memberId, TORN_API_BASE_URL)
     );
     const results = await Promise.allSettled(analysisPromises);
+    console.log("[NO_QUEUE] Analysis settled", {
+      fulfilled: results.filter((r) => r.status === "fulfilled").length,
+      rejected: results.filter((r) => r.status === "rejected").length,
+    });
     const successes = results
       .filter((result) => result.status === "fulfilled")
       .map((result: any) => result.value);
@@ -629,6 +642,7 @@ async function processWithoutQueue(
     }
 
     const pdfBuffer = generatePdfReport(successes);
+    console.log("[NO_QUEUE] PDF generated", pdfBuffer.byteLength || pdfBuffer.length || 0);
     await editOriginalResponse(DISCORD_APP_ID, interaction.token, {
       content: "Neon is unavailable. Generated report without queue.",
       components: [],
