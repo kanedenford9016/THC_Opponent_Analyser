@@ -1,0 +1,184 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+/* ---------------------------------------------------
+   GLOBAL RESET
+--------------------------------------------------- */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  min-height: 100%;
+  background: #0b0b0d;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
+    sans-serif;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Remove ugly focus outlines (we'll add better ones later) */
+:focus {
+  outline: none;
+}
+
+/* ---------------------------------------------------
+   GLOBAL BACKGROUND LAYERS
+--------------------------------------------------- */
+
+body {
+  display: block;
+  background: radial-gradient(
+      circle at top center,
+      rgba(255, 0, 110, 0.10),
+      transparent 55%
+    ),
+    radial-gradient(
+      circle at bottom center,
+      rgba(255, 0, 110, 0.05),
+      transparent 80%
+    ),
+    #0b0b0d;
+}
+
+/* ---------------------------------------------------
+   TYPOGRAPHY + UTILITY CLASSES
+--------------------------------------------------- */
+
+.h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+/* Soft text glow */
+.text-glow {
+  text-shadow: 0 0 8px rgba(255, 0, 110, 0.5);
+}
+
+/* ---------------------------------------------------
+   CARD + PANEL SYSTEM (GLOBAL)
+--------------------------------------------------- */
+
+.thc-card {
+  background: rgba(18, 18, 18, 0.65);
+  padding: 1.5rem;
+  border-radius: 1rem;
+  box-shadow:
+    0 0 20px rgba(0, 0, 0, 0.45),
+    0 0 14px rgba(255, 0, 110, 0.18);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Deeper panel style */
+.thc-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(10, 10, 10, 0.92),
+    rgba(5, 5, 5, 0.92)
+  );
+  padding: 2rem;
+  border-radius: 1.25rem;
+  box-shadow:
+    inset 0 0 15px rgba(255, 0, 110, 0.08),
+    0 0 30px rgba(255, 0, 110, 0.22);
+}
+
+/* ---------------------------------------------------
+   THREAT BAR (global base)
+--------------------------------------------------- */
+
+.thc-bar {
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  position: relative;
+}
+
+.thc-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #ff006e,
+    #ff2d8b
+  );
+  transition: width 0.4s ease;
+}
+
+/* ---------------------------------------------------
+   INPUT ELEMENTS
+--------------------------------------------------- */
+
+input, select, textarea {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  color: #fff;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: #ff006e;
+  box-shadow: 0 0 10px rgba(255, 0, 110, 0.4);
+}
+
+/* ---------------------------------------------------
+   BUTTONS
+--------------------------------------------------- */
+
+.thc-btn {
+  padding: 0.65rem 1.2rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  background: linear-gradient(90deg, #ff006e, #ff2d8b);
+  color: #fff;
+  cursor: pointer;
+  transition: 0.15s ease;
+  border: none;
+}
+
+.thc-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 12px rgba(255, 0, 110, 0.4);
+}
+
+@keyframes pulseSlow {
+  0% { opacity: 0.8; }
+  50% { opacity: 0.55; }
+  100% { opacity: 0.8; }
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 8s ease-in-out infinite;
+}
+
+/* Samurai Panel */
+.samurai-card {
+  background: rgba(10, 10, 10, 0.85);
+  border: 1px solid rgba(255, 0, 118, 0.15);
+  border-radius: 14px;
+  padding: 1.75rem;
+  margin-bottom: 1.5rem;
+  box-shadow:
+    0 0 25px rgba(255, 0, 118, 0.12),
+    inset 0 0 18px rgba(255, 0, 118, 0.08);
+  backdrop-filter: blur(10px);
+}

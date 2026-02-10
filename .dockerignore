@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+output/
+models/
+cache.db
+thc_edge.log
+data/
+.env
+.git/
+.vscode/
+*.pyc

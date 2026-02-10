@@ -1,0 +1,8 @@
+app = "thc-opponent-analysis-bot"
+primary_region = "syd"
+
+[build]
+  dockerfile = "discord_bot/Dockerfile"
+
+[env]
+  BASE_URL = "https://api.torn.com/v2"

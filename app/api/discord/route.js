@@ -1,0 +1,379 @@
+import { NextResponse } from "next/server";
+import { verifyKey } from "discord-interactions";
+import {
+  analyzeMember,
+  fetchFactionMemberIds,
+  generatePdfReport,
+  parseIds,
+} from "@/lib/discord_member_analysis";
+import {
+  deleteDiscordSession,
+  getDiscordSession,
+  setDiscordSession,
+} from "@/lib/discord_sessions";
+
+export const runtime = "nodejs";
+
+const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || "";
+const BASE_URL = process.env.BASE_URL || "https://api.torn.com/v2";
+const SESSION_TTL_SECONDS = 30 * 60;
+
+const InteractionType = {
+  PING: 1,
+  APPLICATION_COMMAND: 2,
+  MESSAGE_COMPONENT: 3,
+  MODAL_SUBMIT: 5,
+};
+
+const InteractionResponseType = {
+  PONG: 1,
+  CHANNEL_MESSAGE_WITH_SOURCE: 4,
+  DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: 5,
+  MODAL: 9,
+};
+
+function isGuildInteraction(interaction) {
+  return Boolean(interaction.guild_id);
+}
+
+function makeEphemeralFlags(interaction) {
+  return isGuildInteraction(interaction) ? 64 : undefined;
+}
+
+function jsonResponse(body, status = 200) {
+  return new NextResponse(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function buildButtons(components) {
+  return [{ type: 1, components }];
+}
+
+function buildKeyTypeButtons() {
+  return buildButtons([
+    {
+      type: 2,
+      style: 1,
+      label: "Limited API Key",
+      custom_id: "key_type:limited",
+    },
+    {
+      type: 2,
+      style: 3,
+      label: "Full API Key",
+      custom_id: "key_type:full",
+    },
+  ]);
+}
+
+function buildTargetTypeButtons() {
+  return buildButtons([
+    {
+      type: 2,
+      style: 1,
+      label: "Faction ID",
+      custom_id: "target_type:faction",
+    },
+    {
+      type: 2,
+      style: 2,
+      label: "Opponent IDs",
+      custom_id: "target_type:opponents",
+    },
+  ]);
+}
+
+function buildApiKeyModal(keyType) {
+  return {
+    title: "Enter Torn API Key",
+    custom_id: `api_key_modal:${keyType}`,
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "api_key",
+            style: 1,
+            label: `${keyType === "full" ? "Full" : "Limited"} API Key`,
+            min_length: 10,
+            max_length: 120,
+            required: true,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function buildTargetModal(targetType) {
+  const title = targetType === "faction" ? "Enter Faction ID" : "Enter Opponent IDs";
+  const label = targetType === "faction" ? "Faction ID" : "Opponent IDs (comma-separated)";
+  const placeholder = targetType === "faction" ? "123456" : "123, 456, 789";
+
+  return {
+    title,
+    custom_id: `target_modal:${targetType}`,
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "target_ids",
+            style: 1,
+            label,
+            placeholder,
+            min_length: 1,
+            max_length: 2000,
+            required: true,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function getTextValue(components, customId) {
+  for (const row of components || []) {
+    for (const component of row.components || []) {
+      if (component.custom_id === customId) {
+        return component.value || "";
+      }
+    }
+  }
+  return "";
+}
+
+function buildAttachmentResponse(interaction, filename, bytes) {
+  const payload = {
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      content: "Here is your member analysis report.",
+      flags: makeEphemeralFlags(interaction),
+      attachments: [
+        {
+          id: 0,
+          filename,
+        },
+      ],
+    },
+  };
+
+  const form = new FormData();
+  form.append("payload_json", JSON.stringify(payload));
+  form.append("files[0]", new Blob([bytes], { type: "application/pdf" }), filename);
+
+  return new NextResponse(form, {
+    status: 200,
+  });
+}
+
+async function handleApplicationCommand(interaction) {
+  const commandName = interaction.data?.name;
+
+  if (commandName === "forget_key") {
+    await deleteDiscordSession(interaction.user.id);
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "API key cleared.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  return jsonResponse({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      content: "Select an API key type to continue:",
+      components: buildKeyTypeButtons(),
+      flags: makeEphemeralFlags(interaction),
+    },
+  });
+}
+
+async function handleMessageComponent(interaction) {
+  const customId = interaction.data?.custom_id || "";
+
+  if (customId.startsWith("key_type:")) {
+    const keyType = customId.split(":")[1] || "limited";
+    return jsonResponse({
+      type: InteractionResponseType.MODAL,
+      data: buildApiKeyModal(keyType),
+    });
+  }
+
+  if (customId.startsWith("target_type:")) {
+    const targetType = customId.split(":")[1] || "opponents";
+    return jsonResponse({
+      type: InteractionResponseType.MODAL,
+      data: buildTargetModal(targetType),
+    });
+  }
+
+  return jsonResponse({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      content: "Unknown action.",
+      flags: makeEphemeralFlags(interaction),
+    },
+  });
+}
+
+async function handleApiKeyModal(interaction, keyType) {
+  const apiKey = getTextValue(interaction.data?.components, "api_key").trim();
+  if (!apiKey) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "API key cannot be empty.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  await setDiscordSession(interaction.user.id, apiKey, keyType, SESSION_TTL_SECONDS);
+
+  return jsonResponse({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      content: "API key saved for 30 minutes. Choose a target type:",
+      components: buildTargetTypeButtons(),
+      flags: makeEphemeralFlags(interaction),
+    },
+  });
+}
+
+async function handleTargetModal(interaction, targetType) {
+  const session = await getDiscordSession(interaction.user.id);
+  if (!session) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Your API key has expired. Run /member_analysis again.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  const rawIds = getTextValue(interaction.data?.components, "target_ids");
+  if (!rawIds) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "No IDs provided.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  let memberIds = [];
+  try {
+    if (targetType === "faction") {
+      memberIds = await fetchFactionMemberIds(session.apiKey, rawIds, BASE_URL);
+    } else {
+      memberIds = parseIds(rawIds);
+    }
+  } catch (error) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: error instanceof Error ? error.message : "Invalid IDs.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  if (memberIds.length > 25) {
+    memberIds = memberIds.slice(0, 25);
+  }
+
+  try {
+    const analyses = [];
+    for (const memberId of memberIds) {
+      const analysis = await analyzeMember(session.apiKey, memberId, BASE_URL);
+      analyses.push(analysis);
+    }
+
+    await deleteDiscordSession(interaction.user.id);
+
+    const pdfBuffer = generatePdfReport(analyses);
+    const filename = `member_vetting_report_${Date.now()}.pdf`;
+
+    return buildAttachmentResponse(interaction, filename, pdfBuffer);
+  } catch (error) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: error instanceof Error ? error.message : "Failed to generate report.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+}
+
+async function handleModalSubmit(interaction) {
+  const customId = interaction.data?.custom_id || "";
+  if (customId.startsWith("api_key_modal:")) {
+    const keyType = customId.split(":")[1] || "limited";
+    return handleApiKeyModal(interaction, keyType);
+  }
+
+  if (customId.startsWith("target_modal:")) {
+    const targetType = customId.split(":")[1] || "opponents";
+    return handleTargetModal(interaction, targetType);
+  }
+
+  return jsonResponse({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      content: "Unknown modal submission.",
+      flags: makeEphemeralFlags(interaction),
+    },
+  });
+}
+
+async function routeInteraction(interaction) {
+  switch (interaction.type) {
+    case InteractionType.PING:
+      return jsonResponse({ type: InteractionResponseType.PONG });
+    case InteractionType.APPLICATION_COMMAND:
+      return handleApplicationCommand(interaction);
+    case InteractionType.MESSAGE_COMPONENT:
+      return handleMessageComponent(interaction);
+    case InteractionType.MODAL_SUBMIT:
+      return handleModalSubmit(interaction);
+    default:
+      return jsonResponse({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: "Unsupported interaction.",
+          flags: makeEphemeralFlags(interaction),
+        },
+      });
+  }
+}
+
+export async function POST(request) {
+  if (!DISCORD_PUBLIC_KEY) {
+    return jsonResponse({ error: "Missing DISCORD_PUBLIC_KEY." }, 500);
+  }
+
+  const signature = request.headers.get("x-signature-ed25519");
+  const timestamp = request.headers.get("x-signature-timestamp");
+  if (!signature || !timestamp) {
+    return jsonResponse({ error: "Missing signature headers." }, 401);
+  }
+  const body = await request.text();
+
+  const isValidRequest = verifyKey(body, signature, timestamp, DISCORD_PUBLIC_KEY);
+  if (!isValidRequest) {
+    return jsonResponse({ error: "Invalid request signature." }, 401);
+  }
+
+  const interaction = JSON.parse(body);
+  return routeInteraction(interaction);
+}

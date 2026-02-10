@@ -1,0 +1,12 @@
+services:
+  - type: worker
+    name: thc-opponent-analysis-bot
+    env: docker
+    dockerfilePath: discord_bot/Dockerfile
+    envVars:
+      - key: BASE_URL
+        value: https://api.torn.com/v2
+      - key: DISCORD_BOT_TOKEN
+        value: CHANGE_ME
+      - key: DISCORD_GUILD_ID
+        value: 1470203205156737197
