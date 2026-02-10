@@ -642,7 +642,7 @@ async function processWithoutQueue(
     }
 
     const pdfBuffer = generatePdfReport(successes);
-    console.log("[NO_QUEUE] PDF generated", pdfBuffer.byteLength || pdfBuffer.length || 0);
+    console.log("[NO_QUEUE] PDF generated", "byteLength" in pdfBuffer ? pdfBuffer.byteLength : 0);
     await editOriginalResponse(DISCORD_APP_ID, interaction.token, {
       content: "Neon is unavailable. Generated report without queue.",
       components: [],
