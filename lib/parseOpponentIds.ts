@@ -1,12 +1,11 @@
 // src/lib/parseOpponentIds.ts
 export type ParseIdsResult =
   | { ok: true; ids: string[] }
-  | { ok: false; reason: string; invalidTokens?: string[] };
+  | { ok: false; reason: string; invalidTokens: string[] };
 
 export function parseOpponentIds(raw: string): ParseIdsResult {
-  const input = (raw ?? "").trim();
   if (!input) {
-    return { ok: false, reason: "No IDs provided." };
+    return { ok: false, reason: "No IDs provided.", invalidTokens: [] };
   }
 
   // Split on commas / whitespace / semicolons / pipes
@@ -16,7 +15,7 @@ export function parseOpponentIds(raw: string): ParseIdsResult {
     .map((t) => t.trim())
     .filter(Boolean);
 
-  if (!tokens.length) return { ok: false, reason: "No IDs provided." };
+  if (!tokens.length) return { ok: false, reason: "No IDs provided.", invalidTokens: [] };
 
   const invalid: string[] = [];
   const ids: string[] = [];
@@ -48,12 +47,13 @@ export function parseOpponentIds(raw: string): ParseIdsResult {
       ok: false,
       reason:
         "Those look like Discord IDs (very long). I need Opponent IDs (numeric IDs from the game/site), e.g. 1234567.",
+      invalidTokens: uniq.filter((x) => x.length >= 15),
     };
   }
 
   // Optional: cap quantity to protect your API rate/worker time
   if (uniq.length > 50) {
-    return { ok: false, reason: "Too many IDs. Max 50 per job." };
+    return { ok: false, reason: "Too many IDs. Max 50 per job.", invalidTokens: [] };
   }
 
   return { ok: true, ids: uniq };
