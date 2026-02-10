@@ -40,6 +40,10 @@ function makeEphemeralFlags(interaction) {
   return isGuildInteraction(interaction) ? 64 : undefined;
 }
 
+function getInteractionUserId(interaction) {
+  return interaction?.user?.id || interaction?.member?.user?.id || null;
+}
+
 function jsonResponse(body, status = 200) {
   return new NextResponse(JSON.stringify(body), {
     status,
@@ -173,9 +177,20 @@ function buildAttachmentResponse(interaction, filename, bytes) {
 
 async function handleApplicationCommand(interaction) {
   const commandName = interaction.data?.name;
+  const userId = getInteractionUserId(interaction);
+
+  if (!userId) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Unable to identify user for this interaction.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
 
   if (commandName === "forget_key") {
-    await deleteDiscordSession(interaction.user.id);
+    await deleteDiscordSession(userId);
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
@@ -224,6 +239,17 @@ async function handleMessageComponent(interaction) {
 }
 
 async function handleApiKeyModal(interaction, keyType) {
+  const userId = getInteractionUserId(interaction);
+  if (!userId) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Unable to identify user for this interaction.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
   const apiKey = getTextValue(interaction.data?.components, "api_key").trim();
   if (!apiKey) {
     return jsonResponse({
@@ -235,7 +261,7 @@ async function handleApiKeyModal(interaction, keyType) {
     });
   }
 
-  await setDiscordSession(interaction.user.id, apiKey, keyType, SESSION_TTL_SECONDS);
+  await setDiscordSession(userId, apiKey, keyType, SESSION_TTL_SECONDS);
 
   return jsonResponse({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -248,7 +274,18 @@ async function handleApiKeyModal(interaction, keyType) {
 }
 
 async function handleTargetModal(interaction, targetType) {
-  const session = await getDiscordSession(interaction.user.id);
+  const userId = getInteractionUserId(interaction);
+  if (!userId) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Unable to identify user for this interaction.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  const session = await getDiscordSession(userId);
   if (!session) {
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -298,7 +335,7 @@ async function handleTargetModal(interaction, targetType) {
       analyses.push(analysis);
     }
 
-    await deleteDiscordSession(interaction.user.id);
+    await deleteDiscordSession(userId);
 
     const pdfBuffer = generatePdfReport(analyses);
     const filename = `member_vetting_report_${Date.now()}.pdf`;
