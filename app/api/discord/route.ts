@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { verifyKey } from "discord-interactions";
 import {
   analyzeMember,
@@ -181,6 +182,21 @@ async function postDiscordFollowup(webhookUrl: string, payload: RequestInit) {
   }
 
   console.log("[DISCORD_WEBHOOK] OK", res.status, text.slice(0, 300));
+}
+
+async function editOriginalResponse(appId: string, interactionToken: string, body: any) {
+  const url = `https://discord.com/api/v10/webhooks/${appId}/${interactionToken}/messages/@original`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    console.error("[EDIT_ORIGINAL] FAILED", res.status, text.slice(0, 2000));
+  } else {
+    console.log("[EDIT_ORIGINAL] OK", res.status);
+  }
 }
 
 async function sendFollowup(
@@ -427,19 +443,53 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
     });
   }
 
-  const jobId = await createJob({
-    userId,
-    apiKey,
-    targetType,
-    memberIds: parsed.ids, // Store parsed IDs directly
-  });
+  if (!DISCORD_APP_ID || !interaction?.token) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Missing Discord application info. Try again shortly.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  const interactionToken = interaction.token;
+  const flags = makeEphemeralFlags(interaction);
+
+  waitUntil(
+    (async () => {
+      try {
+        console.log("[TARGET_MODAL] queue start", parsed.ids.length);
+        const jobId = await createJob({
+          userId,
+          apiKey,
+          targetType,
+          memberIds: parsed.ids, // Store parsed IDs directly
+        });
+        console.log("[TARGET_MODAL] queue done", jobId);
+
+        await editOriginalResponse(DISCORD_APP_ID, interactionToken, {
+          content: `Job queued. Click Check Status to process (job: ${jobId}).`,
+          components: buildJobStatusButtons(jobId),
+          flags,
+        });
+      } catch (error) {
+        console.error("[TARGET_MODAL] queue failed", error);
+        await editOriginalResponse(DISCORD_APP_ID, interactionToken, {
+          content: "Failed to queue job. Please try again in a moment.",
+          components: [],
+          flags,
+        });
+      }
+    })()
+  );
 
   return jsonResponse({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
-      content: `Job queued. Click Check Status to process (job: ${jobId}).`,
-      components: buildJobStatusButtons(jobId),
-      flags: makeEphemeralFlags(interaction),
+      content: "Queuing job...",
+      components: [],
+      flags,
     },
   });
 }
