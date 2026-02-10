@@ -474,7 +474,8 @@ async function handleJobStatus(interaction: any, jobId: string) {
     .filter((result) => result.status === "fulfilled")
     .map((result: any) => result.value);
 
-  const existingResults = Array.isArray(job.results) ? job.results : [];
+  const jobResults = typeof job.results === "string" ? JSON.parse(job.results) : job.results;
+  const existingResults = Array.isArray(jobResults) ? jobResults : [];
   const mergedResults = existingResults.concat(successes);
 
   const newIndex = nextIndex + batch.length;
