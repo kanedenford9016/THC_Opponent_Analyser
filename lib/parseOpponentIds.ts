@@ -4,6 +4,7 @@ export type ParseIdsResult =
   | { ok: false; reason: string; invalidTokens: string[] };
 
 export function parseOpponentIds(raw: string): ParseIdsResult {
+  const input = (raw ?? "").trim();
   if (!input) {
     return { ok: false, reason: "No IDs provided.", invalidTokens: [] };
   }
