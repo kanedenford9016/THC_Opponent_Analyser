@@ -331,7 +331,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
     });
   }
 
-  queueMicrotask(async () => {
+  setTimeout(async () => {
     try {
       let session = null;
       try {
@@ -399,7 +399,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
         error instanceof Error ? error.message : "Failed to generate report."
       );
     }
-  });
+  }, 0);
 
   return jsonResponse({
     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
