@@ -33,26 +33,26 @@ const InteractionResponseType = {
   MODAL: 9,
 };
 
-function isGuildInteraction(interaction) {
+function isGuildInteraction(interaction: any) {
   return Boolean(interaction.guild_id);
 }
 
-function makeEphemeralFlags(interaction) {
+function makeEphemeralFlags(interaction: any) {
   return isGuildInteraction(interaction) ? 64 : undefined;
 }
 
-function getInteractionUserId(interaction) {
+function getInteractionUserId(interaction: any) {
   return interaction?.user?.id || interaction?.member?.user?.id || null;
 }
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body: unknown, status = 200) {
   return new NextResponse(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
   });
 }
 
-function buildButtons(components) {
+function buildButtons(components: any[]) {
   return [{ type: 1, components }];
 }
 
@@ -90,7 +90,7 @@ function buildTargetTypeButtons() {
   ]);
 }
 
-function buildApiKeyModal(keyType) {
+function buildApiKeyModal(keyType: string) {
   return {
     title: "Enter Torn API Key",
     custom_id: `api_key_modal:${keyType}`,
@@ -113,7 +113,7 @@ function buildApiKeyModal(keyType) {
   };
 }
 
-function buildTargetModal(targetType) {
+function buildTargetModal(targetType: string) {
   const title = targetType === "faction" ? "Enter Faction ID" : "Enter Opponent IDs";
   const label = targetType === "faction" ? "Faction ID" : "Opponent IDs (comma-separated)";
   const placeholder = targetType === "faction" ? "123456" : "123, 456, 789";
@@ -141,7 +141,7 @@ function buildTargetModal(targetType) {
   };
 }
 
-function getTextValue(components, customId) {
+function getTextValue(components: any[], customId: string) {
   for (const row of components || []) {
     for (const component of row.components || []) {
       if (component.custom_id === customId) {
@@ -152,31 +152,7 @@ function getTextValue(components, customId) {
   return "";
 }
 
-function buildAttachmentResponse(interaction, filename, bytes) {
-  const payload = {
-    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-    data: {
-      content: "Here is your member analysis report.",
-      flags: makeEphemeralFlags(interaction),
-      attachments: [
-        {
-          id: 0,
-          filename,
-        },
-      ],
-    },
-  };
-
-  const form = new FormData();
-  form.append("payload_json", JSON.stringify(payload));
-  form.append("files[0]", new Blob([bytes], { type: "application/pdf" }), filename);
-
-  return new NextResponse(form, {
-    status: 200,
-  });
-}
-
-async function sendFollowup(interaction, content, attachment) {
+async function sendFollowup(interaction: any, content: string, attachment?: { filename: string; bytes: ArrayBuffer }) {
   if (!DISCORD_APP_ID || !interaction?.token) {
     return;
   }
@@ -223,7 +199,7 @@ async function sendFollowup(interaction, content, attachment) {
   });
 }
 
-async function handleApplicationCommand(interaction) {
+async function handleApplicationCommand(interaction: any) {
   const commandName = interaction.data?.name;
   const userId = getInteractionUserId(interaction);
 
@@ -258,7 +234,7 @@ async function handleApplicationCommand(interaction) {
   });
 }
 
-async function handleMessageComponent(interaction) {
+async function handleMessageComponent(interaction: any) {
   const customId = interaction.data?.custom_id || "";
 
   if (customId.startsWith("key_type:")) {
@@ -286,7 +262,7 @@ async function handleMessageComponent(interaction) {
   });
 }
 
-async function handleApiKeyModal(interaction, keyType) {
+async function handleApiKeyModal(interaction: any, keyType: string) {
   const userId = getInteractionUserId(interaction);
   if (!userId) {
     return jsonResponse({
@@ -332,7 +308,7 @@ async function handleApiKeyModal(interaction, keyType) {
   });
 }
 
-async function handleTargetModal(interaction, targetType) {
+async function handleTargetModal(interaction: any, targetType: string) {
   const userId = getInteractionUserId(interaction);
   if (!userId) {
     return jsonResponse({
@@ -431,10 +407,9 @@ async function handleTargetModal(interaction, targetType) {
       flags: makeEphemeralFlags(interaction),
     },
   });
-
 }
 
-async function handleModalSubmit(interaction) {
+async function handleModalSubmit(interaction: any) {
   const customId = interaction.data?.custom_id || "";
   if (customId.startsWith("api_key_modal:")) {
     const keyType = customId.split(":")[1] || "limited";
@@ -455,7 +430,7 @@ async function handleModalSubmit(interaction) {
   });
 }
 
-async function routeInteraction(interaction) {
+async function routeInteraction(interaction: any) {
   switch (interaction.type) {
     case InteractionType.PING:
       return jsonResponse({ type: InteractionResponseType.PONG });
@@ -476,7 +451,7 @@ async function routeInteraction(interaction) {
   }
 }
 
-export async function POST(request) {
+export async function POST(request: Request) {
   if (!DISCORD_PUBLIC_KEY) {
     return jsonResponse({ error: "Missing DISCORD_PUBLIC_KEY." }, 500);
   }
