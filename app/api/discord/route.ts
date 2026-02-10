@@ -28,7 +28,7 @@ const InteractionResponseType = {
   PONG: 1,
   CHANNEL_MESSAGE_WITH_SOURCE: 4,
   DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: 5,
-  DEFERRED_MESSAGE_UPDATE: 6,
+  DEFERRED_UPDATE_MESSAGE: 6,
   MODAL: 9,
 };
 
@@ -52,11 +52,14 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function safeWaitUntil(promise: Promise<void>) {
+  const guarded = promise.catch((error) => {
+    console.error("[ASYNC_TASK] failed", error);
+  });
   const globalWaitUntil = (globalThis as { waitUntil?: (p: Promise<void>) => void }).waitUntil;
   if (typeof globalWaitUntil === "function") {
-    globalWaitUntil(promise);
+    globalWaitUntil(guarded);
   } else {
-    void promise;
+    void guarded;
   }
 }
 
@@ -522,7 +525,7 @@ async function handleJobStatus(interaction: any, jobId: string) {
     console.error("[JOB_STATUS] Unhandled failure", error);
   });
   return jsonResponse({
-    type: InteractionResponseType.DEFERRED_MESSAGE_UPDATE,
+    type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE,
   });
 }
 
