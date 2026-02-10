@@ -335,6 +335,8 @@ async function handleTargetModal(interaction: any, targetType: string) {
     });
   }
 
+  const keepAlive = setInterval(() => {}, 1000); // Keep function alive
+
   setImmediate(async () => {
     console.log("Starting deferred processing for interaction", interaction.id);
     try {
@@ -411,6 +413,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
         error instanceof Error ? error.message : "Failed to generate report."
       );
     }
+    clearInterval(keepAlive);
   });
 
   return jsonResponse({
