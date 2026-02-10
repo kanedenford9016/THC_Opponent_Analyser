@@ -16,6 +16,7 @@ export const runtime = "nodejs";
 
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || "";
 const BASE_URL = process.env.BASE_URL || "https://api.torn.com/v2";
+const DISCORD_APP_ID = process.env.DISCORD_APP_ID || "";
 const SESSION_TTL_SECONDS = 30 * 60;
 
 const InteractionType = {
@@ -175,6 +176,53 @@ function buildAttachmentResponse(interaction, filename, bytes) {
   });
 }
 
+async function sendFollowup(interaction, content, attachment) {
+  if (!DISCORD_APP_ID || !interaction?.token) {
+    return;
+  }
+
+  const webhookUrl = `https://discord.com/api/v10/webhooks/${DISCORD_APP_ID}/${interaction.token}`;
+  const flags = makeEphemeralFlags(interaction);
+
+  if (!attachment) {
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content,
+        flags,
+      }),
+    });
+    return;
+  }
+
+  const payload = {
+    content,
+    flags,
+    attachments: [
+      {
+        id: 0,
+        filename: attachment.filename,
+      },
+    ],
+  };
+
+  const form = new FormData();
+  form.append("payload_json", JSON.stringify(payload));
+  form.append(
+    "files[0]",
+    new Blob([attachment.bytes], { type: "application/pdf" }),
+    attachment.filename
+  );
+
+  await fetch(webhookUrl, {
+    method: "POST",
+    body: form,
+  });
+}
+
 async function handleApplicationCommand(interaction) {
   const commandName = interaction.data?.name;
   const userId = getInteractionUserId(interaction);
@@ -296,29 +344,6 @@ async function handleTargetModal(interaction, targetType) {
     });
   }
 
-  let session = null;
-  try {
-    session = await getDiscordSession(userId);
-  } catch (error) {
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content:
-          "Session storage is unavailable right now. Please try again in a few minutes.",
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
-  }
-  if (!session) {
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content: "Your API key has expired. Run /member_analysis again.",
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
-  }
-
   const rawIds = getTextValue(interaction.data?.components, "target_ids");
   if (!rawIds) {
     return jsonResponse({
@@ -330,61 +355,82 @@ async function handleTargetModal(interaction, targetType) {
     });
   }
 
-  let memberIds = [];
-  try {
-    if (targetType === "faction") {
-      memberIds = await fetchFactionMemberIds(session.apiKey, rawIds, BASE_URL);
-    } else {
-      memberIds = parseIds(rawIds);
-    }
-  } catch (error) {
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content: error instanceof Error ? error.message : "Invalid IDs.",
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
-  }
-
-  if (memberIds.length > 25) {
-    memberIds = memberIds.slice(0, 25);
-  }
-
-  try {
-    const analyses = [];
-    for (const memberId of memberIds) {
-      const analysis = await analyzeMember(session.apiKey, memberId, BASE_URL);
-      analyses.push(analysis);
-    }
-
+  queueMicrotask(async () => {
     try {
-      await deleteDiscordSession(userId);
-    } catch (error) {
-      return jsonResponse({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content:
-            "Report generated, but session cleanup failed. Please run /forget_key if needed.",
-          flags: makeEphemeralFlags(interaction),
-        },
+      let session = null;
+      try {
+        session = await getDiscordSession(userId);
+      } catch (error) {
+        await sendFollowup(
+          interaction,
+          "Session storage is unavailable right now. Please try again in a few minutes."
+        );
+        return;
+      }
+
+      if (!session) {
+        await sendFollowup(
+          interaction,
+          "Your API key has expired. Run /member_analysis again."
+        );
+        return;
+      }
+
+      let memberIds = [];
+      try {
+        if (targetType === "faction") {
+          memberIds = await fetchFactionMemberIds(session.apiKey, rawIds, BASE_URL);
+        } else {
+          memberIds = parseIds(rawIds);
+        }
+      } catch (error) {
+        await sendFollowup(
+          interaction,
+          error instanceof Error ? error.message : "Invalid IDs."
+        );
+        return;
+      }
+
+      if (memberIds.length > 25) {
+        memberIds = memberIds.slice(0, 25);
+      }
+
+      const analyses = [];
+      for (const memberId of memberIds) {
+        const analysis = await analyzeMember(session.apiKey, memberId, BASE_URL);
+        analyses.push(analysis);
+      }
+
+      try {
+        await deleteDiscordSession(userId);
+      } catch (error) {
+        await sendFollowup(
+          interaction,
+          "Report generated, but session cleanup failed. Please run /forget_key if needed."
+        );
+        return;
+      }
+
+      const pdfBuffer = generatePdfReport(analyses);
+      const filename = `member_vetting_report_${Date.now()}.pdf`;
+      await sendFollowup(interaction, "Here is your member analysis report.", {
+        filename,
+        bytes: pdfBuffer,
       });
+    } catch (error) {
+      await sendFollowup(
+        interaction,
+        error instanceof Error ? error.message : "Failed to generate report."
+      );
     }
+  });
 
-    const pdfBuffer = generatePdfReport(analyses);
-    const filename = `member_vetting_report_${Date.now()}.pdf`;
-
-    return buildAttachmentResponse(interaction, filename, pdfBuffer);
-  } catch (error) {
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content: error instanceof Error ? error.message : "Failed to generate report.",
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
-  }
-}
+  return jsonResponse({
+    type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: makeEphemeralFlags(interaction),
+    },
+  });
 
 async function handleModalSubmit(interaction) {
   const customId = interaction.data?.custom_id || "";
