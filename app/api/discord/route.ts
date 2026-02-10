@@ -7,6 +7,8 @@ import {
   parseIds,
 } from "../../../lib/discord_member_analysis";
 import { createJob, deleteJob, getJob, updateJob } from "../../../lib/discord_jobs";
+import { getModalTextValue } from "../../../lib/getModalText";
+import { parseOpponentIds } from "../../../lib/parseOpponentIds";
 
 export const runtime = "nodejs";
 
@@ -348,12 +350,35 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
     });
   }
 
-  const rawIds = getTextValue(interaction.data?.components, "target_ids");
-  if (!rawIds) {
+  const rawIds = getModalTextValue(interaction, [
+    "opponent_ids",
+    "opponentIds",
+    "ids",
+    "targets",
+    "target_ids",
+  ]);
+
+  // Debug that actually helps when field IDs are mismatched:
+  console.log("[TARGET_MODAL] raw field value:", JSON.stringify(rawIds));
+  console.log(
+    "[TARGET_MODAL] component ids:",
+    (interaction?.data?.components ?? [])
+      .flatMap((r: any) => (r?.components ?? []).map((c: any) => c?.custom_id))
+      .filter(Boolean),
+  );
+
+  const parsed = parseOpponentIds(rawIds);
+
+  if (!parsed.ok) {
+    const extra =
+      parsed.invalidTokens?.length
+        ? `\nInvalid: ${parsed.invalidTokens.join(", ")}`
+        : "";
+
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
-        content: "No IDs provided.",
+        content: `Invalid IDs.\n${parsed.reason}${extra}\n\nExample:\n1234567, 2345678, 3456789`,
         flags: makeEphemeralFlags(interaction),
       },
     });
@@ -383,7 +408,7 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
     userId,
     apiKey,
     targetType,
-    rawIds,
+    memberIds: parsed.ids, // Store parsed IDs directly
   });
 
   return jsonResponse({
@@ -418,22 +443,23 @@ async function handleJobStatus(interaction: any, jobId: string) {
     });
   }
 
-  let memberIds = job.member_ids || null;
-  if (!memberIds) {
-    try {
-      memberIds = parseIds(job.raw_ids);
-      await updateJob(jobId, { member_ids: memberIds, next_index: 0, status: "running" });
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Invalid IDs.";
-      await updateJob(jobId, { status: "error", error: errorMsg });
-      return jsonResponse({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: errorMsg,
-          flags: makeEphemeralFlags(interaction),
-        },
-      });
-    }
+  let memberIds = job.member_ids;
+  if (typeof memberIds === 'string') {
+    memberIds = JSON.parse(memberIds);
+  }
+  if (!memberIds || !Array.isArray(memberIds)) {
+    await updateJob(jobId, { status: "error", error: "Invalid stored IDs." });
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Invalid stored IDs.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  if (job.status === "queued") {
+    await updateJob(jobId, { status: "running", next_index: 0 });
   }
 
   const nextIndex = Number(job.next_index || 0);
