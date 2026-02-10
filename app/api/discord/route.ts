@@ -490,6 +490,11 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
           components: buildJobStatusButtons(jobId),
           flags,
         });
+
+        // Start processing immediately so users do not need to click the button.
+        void processJobStatus(interaction, jobId).catch((err) => {
+          console.error("[JOB_STATUS] Auto-start failed", err);
+        });
       } catch (error) {
         console.error("[TARGET_MODAL] queue failed", error);
         await editOriginalResponse(DISCORD_APP_ID, interactionToken, {
