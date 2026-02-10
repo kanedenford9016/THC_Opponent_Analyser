@@ -181,7 +181,7 @@ async function sendFollowup(interaction: any, content: string, attachment?: { fi
   }
 
   const webhookUrl = `https://discord.com/api/v10/webhooks/${DISCORD_APP_ID}/${interaction.token}`;
-  console.log("Webhook URL:", webhookUrl);
+  console.log("Webhook URL: [redacted]");
   const flags = makeEphemeralFlags(interaction);
 
   if (!attachment) {
