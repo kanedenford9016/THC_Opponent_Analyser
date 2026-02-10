@@ -452,69 +452,77 @@ async function handleJobStatus(interaction: any, jobId: string) {
 }
 
 async function processJobStatus(interaction: any, jobId: string) {
-  const job = await getJob(jobId);
-  if (!job) {
-    await sendFollowup(interaction, "Job not found or expired.");
-    return;
-  }
+  try {
+    console.log("[JOB_STATUS] Processing job", jobId);
+    const job = await getJob(jobId);
+    if (!job) {
+      console.log("[JOB_STATUS] Job not found", jobId);
+      await sendFollowup(interaction, "Job not found or expired.");
+      return;
+    }
 
-  if (job.status === "error") {
-    await sendFollowup(interaction, `Job failed: ${job.error || "unknown error"}`);
-    return;
-  }
+    console.log("[JOB_STATUS] Loaded job", jobId, "status", job.status, "next", job.next_index);
+    if (job.status === "error") {
+      await sendFollowup(interaction, `Job failed: ${job.error || "unknown error"}`);
+      return;
+    }
 
-  let memberIds = job.member_ids;
-  if (typeof memberIds === "string") {
-    memberIds = JSON.parse(memberIds);
-  }
-  if (!memberIds || !Array.isArray(memberIds)) {
-    await updateJob(jobId, { status: "error", error: "Invalid stored IDs." });
-    await sendFollowup(interaction, "Invalid stored IDs.");
-    return;
-  }
+    let memberIds = job.member_ids;
+    if (typeof memberIds === "string") {
+      memberIds = JSON.parse(memberIds);
+    }
+    if (!memberIds || !Array.isArray(memberIds)) {
+      await updateJob(jobId, { status: "error", error: "Invalid stored IDs." });
+      await sendFollowup(interaction, "Invalid stored IDs.");
+      return;
+    }
 
-  if (job.status === "queued") {
-    await updateJob(jobId, { status: "running", next_index: 0 });
-  }
+    if (job.status === "queued") {
+      await updateJob(jobId, { status: "running", next_index: 0 });
+    }
 
-  const nextIndex = Number(job.next_index || 0);
-  const batch = memberIds.slice(nextIndex, nextIndex + JOB_BATCH_SIZE);
-  const analysisPromises = batch.map((memberId: string) =>
-    analyzeMember(job.api_key, memberId, TORN_API_BASE_URL)
-  );
+    const nextIndex = Number(job.next_index || 0);
+    const batch = memberIds.slice(nextIndex, nextIndex + JOB_BATCH_SIZE);
+    console.log("[JOB_STATUS] Batch size", batch.length, "next", nextIndex);
+    const analysisPromises = batch.map((memberId: string) =>
+      analyzeMember(job.api_key, memberId, TORN_API_BASE_URL)
+    );
 
-  const results = await Promise.allSettled(analysisPromises);
-  const successes = results
-    .filter((result) => result.status === "fulfilled")
-    .map((result: any) => result.value);
+    const results = await Promise.allSettled(analysisPromises);
+    const successes = results
+      .filter((result) => result.status === "fulfilled")
+      .map((result: any) => result.value);
 
-  const jobResults = typeof job.results === "string" ? JSON.parse(job.results) : job.results;
-  const existingResults = Array.isArray(jobResults) ? jobResults : [];
-  const mergedResults = existingResults.concat(successes);
+    const jobResults = typeof job.results === "string" ? JSON.parse(job.results) : job.results;
+    const existingResults = Array.isArray(jobResults) ? jobResults : [];
+    const mergedResults = existingResults.concat(successes);
 
-  const newIndex = nextIndex + batch.length;
-  const isComplete = newIndex >= memberIds.length;
-  await updateJob(jobId, {
-    results: mergedResults,
-    next_index: newIndex,
-    status: isComplete ? "complete" : "running",
-  });
-
-  if (!isComplete) {
-    await sendFollowup(interaction, `Progress: ${newIndex}/${memberIds.length}. Click Check Status to continue.`, {
-      components: buildJobStatusButtons(jobId),
+    const newIndex = nextIndex + batch.length;
+    const isComplete = newIndex >= memberIds.length;
+    await updateJob(jobId, {
+      results: mergedResults,
+      next_index: newIndex,
+      status: isComplete ? "complete" : "running",
     });
-    return;
-  }
 
-  const pdfBuffer = generatePdfReport(mergedResults);
-  await deleteJob(jobId);
-  await sendFollowup(interaction, "Here is your member analysis report.", {
-    attachment: {
-      filename: `member_vetting_report_${Date.now()}.pdf`,
-      bytes: pdfBuffer,
-    },
-  });
+    if (!isComplete) {
+      await sendFollowup(interaction, `Progress: ${newIndex}/${memberIds.length}. Click Check Status to continue.`, {
+        components: buildJobStatusButtons(jobId),
+      });
+      return;
+    }
+
+    const pdfBuffer = generatePdfReport(mergedResults);
+    await deleteJob(jobId);
+    await sendFollowup(interaction, "Here is your member analysis report.", {
+      attachment: {
+        filename: `member_vetting_report_${Date.now()}.pdf`,
+        bytes: pdfBuffer,
+      },
+    });
+  } catch (error) {
+    console.error("[JOB_STATUS] Failed", jobId, error);
+  }
 }
 
 async function handleModalSubmit(interaction: any) {
