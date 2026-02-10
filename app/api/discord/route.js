@@ -432,6 +432,8 @@ async function handleTargetModal(interaction, targetType) {
     },
   });
 
+}
+
 async function handleModalSubmit(interaction) {
   const customId = interaction.data?.custom_id || "";
   if (customId.startsWith("api_key_modal:")) {
