@@ -370,15 +370,16 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
   const parsed = parseOpponentIds(rawIds);
 
   if (!parsed.ok) {
+    const errorResult = parsed as { ok: false; reason: string; invalidTokens: string[] };
     const extra =
-      parsed.invalidTokens?.length
-        ? `\nInvalid: ${parsed.invalidTokens.join(", ")}`
+      errorResult.invalidTokens.length
+        ? `\nInvalid: ${errorResult.invalidTokens.join(", ")}`
         : "";
 
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
-        content: `Invalid IDs.\n${parsed.reason}${extra}\n\nExample:\n1234567, 2345678, 3456789`,
+        content: `Invalid IDs.\n${errorResult.reason}${extra}\n\nExample:\n1234567, 2345678, 3456789`,
         flags: makeEphemeralFlags(interaction),
       },
     });
