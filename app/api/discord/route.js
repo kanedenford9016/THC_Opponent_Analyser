@@ -261,7 +261,18 @@ async function handleApiKeyModal(interaction, keyType) {
     });
   }
 
-  await setDiscordSession(userId, apiKey, keyType, SESSION_TTL_SECONDS);
+  try {
+    await setDiscordSession(userId, apiKey, keyType, SESSION_TTL_SECONDS);
+  } catch (error) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content:
+          "Session storage is unavailable right now. Please try again in a few minutes.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
 
   return jsonResponse({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -285,7 +296,19 @@ async function handleTargetModal(interaction, targetType) {
     });
   }
 
-  const session = await getDiscordSession(userId);
+  let session = null;
+  try {
+    session = await getDiscordSession(userId);
+  } catch (error) {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content:
+          "Session storage is unavailable right now. Please try again in a few minutes.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
   if (!session) {
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -335,7 +358,18 @@ async function handleTargetModal(interaction, targetType) {
       analyses.push(analysis);
     }
 
-    await deleteDiscordSession(userId);
+    try {
+      await deleteDiscordSession(userId);
+    } catch (error) {
+      return jsonResponse({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content:
+            "Report generated, but session cleanup failed. Please run /forget_key if needed.",
+          flags: makeEphemeralFlags(interaction),
+        },
+      });
+    }
 
     const pdfBuffer = generatePdfReport(analyses);
     const filename = `member_vetting_report_${Date.now()}.pdf`;
