@@ -170,6 +170,18 @@ function getTextValue(components: any[], customId: string) {
   return "";
 }
 
+async function postDiscordFollowup(webhookUrl: string, payload: RequestInit) {
+  const res = await fetch(webhookUrl, payload);
+  const text = await res.text().catch(() => "");
+
+  if (!res.ok) {
+    console.error("[DISCORD_WEBHOOK] FAILED", res.status, text.slice(0, 2000));
+    throw new Error(`Discord webhook failed: ${res.status}`);
+  }
+
+  console.log("[DISCORD_WEBHOOK] OK", res.status, text.slice(0, 300));
+}
+
 async function sendFollowup(
   interaction: any,
   content: string,
@@ -193,7 +205,7 @@ async function sendFollowup(
 
   if (!attachment) {
     console.log("Sending text followup");
-    await fetch(webhookUrl, {
+    await postDiscordFollowup(webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -228,7 +240,7 @@ async function sendFollowup(
   );
 
   console.log("Sending attachment followup");
-  await fetch(webhookUrl, {
+  await postDiscordFollowup(webhookUrl, {
     method: "POST",
     body: form,
   });
