@@ -6,18 +6,12 @@ import {
   generatePdfReport,
   parseIds,
 } from "../../../lib/discord_member_analysis";
-import {
-  deleteDiscordSession,
-  getDiscordSession,
-  setDiscordSession,
-} from "../../../lib/discord_sessions";
 
 export const runtime = "nodejs";
 
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || "";
 const TORN_API_BASE_URL = process.env.TORN_API_BASE_URL || "https://api.torn.com/v2";
 const DISCORD_APP_ID = process.env.APP_ID || "";
-const SESSION_TTL_SECONDS = 30 * 60;
 
 const InteractionType = {
   PING: 1,
@@ -82,19 +76,19 @@ function buildKeyTypeButtons() {
   ]);
 }
 
-function buildTargetTypeButtons() {
+function buildTargetTypeButtons(apiKey: string) {
   return buildButtons([
     {
       type: 2,
       style: 1,
       label: "Faction ID",
-      custom_id: "target_type:faction",
+      custom_id: `target_type:faction:${apiKey}`,
     },
     {
       type: 2,
       style: 2,
       label: "Opponent IDs",
-      custom_id: "target_type:opponents",
+      custom_id: `target_type:opponents:${apiKey}`,
     },
   ]);
 }
@@ -122,14 +116,14 @@ function buildApiKeyModal(keyType: string) {
   };
 }
 
-function buildTargetModal(targetType: string) {
+function buildTargetModal(targetType: string, apiKey: string) {
   const title = targetType === "faction" ? "Enter Faction ID" : "Enter Opponent IDs";
   const label = targetType === "faction" ? "Faction ID" : "Opponent IDs (comma-separated)";
   const placeholder = targetType === "faction" ? "123456" : "123, 456, 789";
 
   return {
     title,
-    custom_id: `target_modal:${targetType}`,
+    custom_id: `target_modal:${targetType}:${apiKey}`,
     components: [
       {
         type: 1,
@@ -231,11 +225,21 @@ async function handleApplicationCommand(interaction: any) {
   }
 
   if (commandName === "forget_key") {
-    await deleteDiscordSession(userId);
     return jsonResponse({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
-        content: "API key cleared.",
+        content: "No stored API key to forget.",
+        flags: makeEphemeralFlags(interaction),
+      },
+    });
+  }
+
+  if (commandName === "member_analysis") {
+    return jsonResponse({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: "Choose API key type:",
+        components: buildKeyTypeButtons(),
         flags: makeEphemeralFlags(interaction),
       },
     });
@@ -244,8 +248,7 @@ async function handleApplicationCommand(interaction: any) {
   return jsonResponse({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
-      content: "Select an API key type to continue:",
-      components: buildKeyTypeButtons(),
+      content: "Unknown command.",
       flags: makeEphemeralFlags(interaction),
     },
   });
@@ -263,10 +266,12 @@ async function handleMessageComponent(interaction: any) {
   }
 
   if (customId.startsWith("target_type:")) {
-    const targetType = customId.split(":")[1] || "opponents";
+    const parts = customId.split(":");
+    const targetType = parts[1] || "opponents";
+    const apiKey = parts.slice(2).join(":");
     return jsonResponse({
       type: InteractionResponseType.MODAL,
-      data: buildTargetModal(targetType),
+      data: buildTargetModal(targetType, apiKey),
     });
   }
 
@@ -302,30 +307,17 @@ async function handleApiKeyModal(interaction: any, keyType: string) {
     });
   }
 
-  try {
-    await setDiscordSession(userId, apiKey, keyType, SESSION_TTL_SECONDS);
-  } catch (error) {
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content:
-          "Session storage is unavailable right now. Please try again in a few minutes.",
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
-  }
-
   return jsonResponse({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
-      content: "API key saved for 30 minutes. Choose a target type:",
-      components: buildTargetTypeButtons(),
+      content: "API key received. Choose a target type:",
+      components: buildTargetTypeButtons(apiKey),
       flags: makeEphemeralFlags(interaction),
     },
   });
 }
 
-async function handleTargetModal(interaction: any, targetType: string) {
+async function handleTargetModal(interaction: any, targetType: string, apiKey: string) {
   console.log("Handling target modal for interaction", interaction.id);
   const userId = getInteractionUserId(interaction);
   if (!userId) {
@@ -349,43 +341,25 @@ async function handleTargetModal(interaction: any, targetType: string) {
     });
   }
 
-  const keepAlive = setInterval(() => {}, 500); // Keep function alive
-
   console.log("About to start deferred processing");
   process.nextTick(async () => {
     console.log("Inside process.nextTick for interaction", interaction.id);
     console.log("Starting deferred processing for interaction", interaction.id);
     try {
-      let session = null;
-      try {
-        console.log("Fetching session for user", userId);
-        session = await withTimeout(getDiscordSession(userId), 5000, "getDiscordSession");
-        console.log("Session retrieved", !!session);
-        if (session) console.log("Session apiKey present", !!session.apiKey);
-      } catch (error) {
-        console.log("Error getting session", error instanceof Error ? error.message : error);
-        await sendFollowup(
-          interaction,
-          "Session storage is unavailable right now. Please try again in a few minutes."
-        );
-        return;
-      }
-
-      if (!session) {
-        console.log("No session found, sending expired message");
-        await sendFollowup(
-          interaction,
-          "Your API key has expired. Run /member_analysis again."
-        );
-        return;
-      }
-
       let memberIds = [];
       try {
+        if (!apiKey) {
+          await sendFollowup(
+            interaction,
+            "Missing API key. Run /member_analysis again."
+          );
+          return;
+        }
+
         console.log("Parsing IDs, targetType:", targetType, "rawIds:", rawIds);
         if (targetType === "faction") {
           memberIds = await withTimeout(
-            fetchFactionMemberIds(session.apiKey, rawIds, TORN_API_BASE_URL),
+            fetchFactionMemberIds(apiKey, rawIds, TORN_API_BASE_URL),
             8000,
             "fetchFactionMemberIds"
           );
@@ -395,7 +369,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
           console.log("Parsed opponent memberIds", memberIds.length);
         }
       } catch (error) {
-        console.log("Error parsing/fetching IDs", error.message);
+        console.log("Error parsing/fetching IDs", error instanceof Error ? error.message : error);
         await sendFollowup(
           interaction,
           error instanceof Error ? error.message : "Invalid IDs."
@@ -409,7 +383,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
 
       const analysisPromises = memberIds.map(memberId =>
         withTimeout(
-          analyzeMember(session.apiKey, memberId, TORN_API_BASE_URL),
+          analyzeMember(apiKey, memberId, TORN_API_BASE_URL),
           8000,
           `analyzeMember:${memberId}`
         )
@@ -428,16 +402,6 @@ async function handleTargetModal(interaction: any, targetType: string) {
         return;
       }
 
-      try {
-        await deleteDiscordSession(userId);
-      } catch (error) {
-        await sendFollowup(
-          interaction,
-          "Report generated, but session cleanup failed. Please run /forget_key if needed."
-        );
-        return;
-      }
-
       const pdfBuffer = generatePdfReport(analyses);
       console.log("PDF generated, size:", pdfBuffer.byteLength);
       const filename = `member_vetting_report_${Date.now()}.pdf`;
@@ -453,7 +417,6 @@ async function handleTargetModal(interaction: any, targetType: string) {
         error instanceof Error ? error.message : "Failed to generate report."
       );
     }
-    clearInterval(keepAlive);
   });
 
   console.log("Sending defer response for interaction", interaction.id);
@@ -474,8 +437,10 @@ async function handleModalSubmit(interaction: any) {
   }
 
   if (customId.startsWith("target_modal:")) {
-    const targetType = customId.split(":")[1] || "opponents";
-    return handleTargetModal(interaction, targetType);
+    const parts = customId.split(":");
+    const targetType = parts[1] || "opponents";
+    const apiKey = parts.slice(2).join(":");
+    return handleTargetModal(interaction, targetType, apiKey);
   }
 
   return jsonResponse({
