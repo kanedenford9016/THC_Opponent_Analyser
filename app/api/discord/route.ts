@@ -346,7 +346,10 @@ async function handleTargetModal(interaction: any, targetType: string) {
       let session = null;
       try {
         session = await getDiscordSession(userId);
+        console.log("Session retrieved", !!session);
+        if (session) console.log("Session apiKey present", !!session.apiKey);
       } catch (error) {
+        console.log("Error getting session", error.message);
         await sendFollowup(
           interaction,
           "Session storage is unavailable right now. Please try again in a few minutes."
@@ -355,6 +358,7 @@ async function handleTargetModal(interaction: any, targetType: string) {
       }
 
       if (!session) {
+        console.log("No session found, sending expired message");
         await sendFollowup(
           interaction,
           "Your API key has expired. Run /member_analysis again."
@@ -364,12 +368,16 @@ async function handleTargetModal(interaction: any, targetType: string) {
 
       let memberIds = [];
       try {
+        console.log("Parsing IDs, targetType:", targetType, "rawIds:", rawIds);
         if (targetType === "faction") {
           memberIds = await fetchFactionMemberIds(session.apiKey, rawIds, TORN_API_BASE_URL);
+          console.log("Fetched faction memberIds", memberIds.length);
         } else {
           memberIds = parseIds(rawIds);
+          console.log("Parsed opponent memberIds", memberIds.length);
         }
       } catch (error) {
+        console.log("Error parsing/fetching IDs", error.message);
         await sendFollowup(
           interaction,
           error instanceof Error ? error.message : "Invalid IDs."
@@ -384,12 +392,16 @@ async function handleTargetModal(interaction: any, targetType: string) {
       const analysisPromises = memberIds.map(memberId =>
         analyzeMember(session.apiKey, memberId, TORN_API_BASE_URL)
       );
+      console.log("Starting analysis for", memberIds.length, "members");
       const results = await Promise.allSettled(analysisPromises);
+      console.log("Analysis completed, results:", results.length);
       const analyses = results
         .filter(result => result.status === 'fulfilled')
         .map(result => result.value);
+      console.log("Successful analyses:", analyses.length);
 
       if (analyses.length === 0) {
+        console.log("No successful analyses, sending error");
         await sendFollowup(interaction, "Failed to analyze any members.");
         return;
       }
@@ -405,12 +417,15 @@ async function handleTargetModal(interaction: any, targetType: string) {
       }
 
       const pdfBuffer = generatePdfReport(analyses);
+      console.log("PDF generated, size:", pdfBuffer.length);
       const filename = `member_vetting_report_${Date.now()}.pdf`;
+      console.log("Sending PDF followup");
       await sendFollowup(interaction, "Here is your member analysis report.", {
         filename,
         bytes: pdfBuffer,
       });
     } catch (error) {
+      console.log("Error in deferred processing", error.message);
       await sendFollowup(
         interaction,
         error instanceof Error ? error.message : "Failed to generate report."
