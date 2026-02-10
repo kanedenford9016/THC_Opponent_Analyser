@@ -493,10 +493,11 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
       } catch (error) {
         console.error("[TARGET_MODAL] queue failed", error);
         await editOriginalResponse(DISCORD_APP_ID, interactionToken, {
-          content: "Failed to queue job. Please try again in a moment.",
+          content: "Neon is unavailable. Processing without queue...",
           components: [],
           flags,
         });
+        await processWithoutQueue(interaction, parsed.ids, apiKey, flags);
       }
     })()
   );
@@ -591,6 +592,53 @@ async function processJobStatus(interaction: any, jobId: string) {
     });
   } catch (error) {
     console.error("[JOB_STATUS] Failed", jobId, error);
+  }
+}
+
+async function processWithoutQueue(
+  interaction: any,
+  memberIds: string[],
+  apiKey: string,
+  flags: number | undefined
+) {
+  try {
+    console.log("[NO_QUEUE] Processing", memberIds.length, "ids");
+    const analysisPromises = memberIds.map((memberId) =>
+      analyzeMember(apiKey, memberId, TORN_API_BASE_URL)
+    );
+    const results = await Promise.allSettled(analysisPromises);
+    const successes = results
+      .filter((result) => result.status === "fulfilled")
+      .map((result: any) => result.value);
+
+    if (!successes.length) {
+      await editOriginalResponse(DISCORD_APP_ID, interaction.token, {
+        content: "Neon is unavailable and no results were returned. Please try again in a moment.",
+        components: [],
+        flags,
+      });
+      return;
+    }
+
+    const pdfBuffer = generatePdfReport(successes);
+    await editOriginalResponse(DISCORD_APP_ID, interaction.token, {
+      content: "Neon is unavailable. Generated report without queue.",
+      components: [],
+      flags,
+    });
+    await sendFollowup(interaction, "Here is your member analysis report.", {
+      attachment: {
+        filename: `member_vetting_report_${Date.now()}.pdf`,
+        bytes: pdfBuffer,
+      },
+    });
+  } catch (error) {
+    console.error("[NO_QUEUE] Failed", error);
+    await editOriginalResponse(DISCORD_APP_ID, interaction.token, {
+      content: "Neon is unavailable and processing failed. Please try again shortly.",
+      components: [],
+      flags,
+    });
   }
 }
 
