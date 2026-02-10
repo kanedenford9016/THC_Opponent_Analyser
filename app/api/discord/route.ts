@@ -313,6 +313,7 @@ async function handleApiKeyModal(interaction: any, keyType: string) {
 }
 
 async function handleTargetModal(interaction: any, targetType: string) {
+  console.log("Handling target modal for interaction", interaction.id);
   const userId = getInteractionUserId(interaction);
   if (!userId) {
     return jsonResponse({
@@ -335,9 +336,11 @@ async function handleTargetModal(interaction: any, targetType: string) {
     });
   }
 
-  const keepAlive = setInterval(() => {}, 1000); // Keep function alive
+  const keepAlive = setInterval(() => {}, 500); // Keep function alive
 
-  setImmediate(async () => {
+  console.log("About to start deferred processing");
+  process.nextTick(async () => {
+    console.log("Inside process.nextTick for interaction", interaction.id);
     console.log("Starting deferred processing for interaction", interaction.id);
     try {
       let session = null;
@@ -416,6 +419,8 @@ async function handleTargetModal(interaction: any, targetType: string) {
     clearInterval(keepAlive);
   });
 
+  console.log("Sending defer response for interaction", interaction.id);
+
   return jsonResponse({
     type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
@@ -484,5 +489,6 @@ export async function POST(request: Request) {
   }
 
   const interaction = JSON.parse(body);
+  console.log("Interaction received", interaction.type, interaction.id, new Date().toISOString());
   return routeInteraction(interaction);
 }
