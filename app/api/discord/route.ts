@@ -424,11 +424,12 @@ async function handleJobStatus(interaction: any, jobId: string) {
       memberIds = parseIds(job.raw_ids);
       await updateJob(jobId, { member_ids: memberIds, next_index: 0, status: "running" });
     } catch (error) {
-      await updateJob(jobId, { status: "error", error: "Invalid IDs." });
+      const errorMsg = error instanceof Error ? error.message : "Invalid IDs.";
+      await updateJob(jobId, { status: "error", error: errorMsg });
       return jsonResponse({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
-          content: "Invalid IDs.",
+          content: errorMsg,
           flags: makeEphemeralFlags(interaction),
         },
       });
