@@ -5,12 +5,12 @@ import {
   fetchFactionMemberIds,
   generatePdfReport,
   parseIds,
-} from "@/lib/discord_member_analysis";
+} from "../../../lib/discord_member_analysis";
 import {
   deleteDiscordSession,
   getDiscordSession,
   setDiscordSession,
-} from "@/lib/discord_sessions";
+} from "../../../lib/discord_sessions";
 
 export const runtime = "nodejs";
 
