@@ -13,6 +13,9 @@ import { parseOpponentIds } from "../../../lib/parseOpponentIds";
 
 export const runtime = "nodejs";
 
+const BUILD_MARKER = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT || "local";
+console.log("[BOOT] discord route loaded", { build: BUILD_MARKER, runtime: "nodejs" });
+
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || "";
 const TORN_API_BASE_URL = process.env.TORN_API_BASE_URL || "https://api.torn.com/v2";
 const DISCORD_APP_ID = process.env.APP_ID || process.env.DISCORD_APP_ID || "";
@@ -449,6 +452,8 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
 
   const parsed = parseOpponentIds(rawIds);
 
+  console.log("[TARGET_MODAL] target type", targetType);
+
   if (!parsed.ok) {
     const errorResult = parsed as { ok: false; reason: string; invalidTokens: string[] };
     console.log("[TARGET_MODAL] parse failed", errorResult.reason, errorResult.invalidTokens);
@@ -478,14 +483,25 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
   }
 
   if (targetType === "faction") {
-    console.log("[TARGET_MODAL] faction target blocked");
-    return jsonResponse({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        content: "Faction lookups are slow on Vercel. Please use Opponent IDs for now.",
-        flags: makeEphemeralFlags(interaction),
-      },
-    });
+    console.log("[TARGET_MODAL] faction target start", rawIds, "build", BUILD_MARKER);
+    try {
+      const factionIds = await withTimeout(
+        fetchFactionMemberIds(apiKey, rawIds, TORN_API_BASE_URL),
+        15000,
+        "fetchFactionMemberIds"
+      );
+      parsed.ids = factionIds;
+      console.log("[TARGET_MODAL] faction member count", factionIds.length);
+    } catch (error) {
+      logError("[TARGET_MODAL] faction lookup failed", error);
+      return jsonResponse({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: "Faction lookup failed. Check the faction ID and API key permissions.",
+          flags: makeEphemeralFlags(interaction),
+        },
+      });
+    }
   }
 
   if (!DISCORD_APP_ID || !interaction?.token) {
