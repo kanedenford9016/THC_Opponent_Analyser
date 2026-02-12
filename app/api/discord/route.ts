@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { waitUntil as vercelWaitUntil } from "@vercel/functions";
 import { verifyKey } from "discord-interactions";
 import {
   analyzeMember,
@@ -51,14 +52,35 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function safeWaitUntil(promise: Promise<void>) {
+function logError(label: string, error: unknown) {
+  if (error instanceof Error) {
+    console.error(label, { message: error.message, stack: error.stack });
+    return;
+  }
+  console.error(label, error);
+}
+
+function safeWaitUntil(promise: Promise<unknown>) {
   const guarded = promise.catch((error) => {
     console.error("[ASYNC_TASK] failed", error);
   });
+
+  try {
+    if (typeof vercelWaitUntil === "function") {
+      console.log("[ASYNC_TASK] using vercel waitUntil");
+      vercelWaitUntil(guarded);
+      return;
+    }
+  } catch (error) {
+    logError("[ASYNC_TASK] waitUntil error", error);
+  }
+
   const globalWaitUntil = (globalThis as { waitUntil?: (p: Promise<void>) => void }).waitUntil;
   if (typeof globalWaitUntil === "function") {
-    globalWaitUntil(guarded);
+    console.log("[ASYNC_TASK] using global waitUntil");
+    globalWaitUntil(guarded as Promise<void>);
   } else {
+    console.warn("[ASYNC_TASK] waitUntil unavailable, running detached");
     void guarded;
   }
 }
@@ -195,7 +217,7 @@ async function postDiscordFollowup(webhookUrl: string, payload: RequestInit) {
 
     console.log("[DISCORD_WEBHOOK] OK", res.status, text.slice(0, 300));
   } catch (error) {
-    console.error("[DISCORD_WEBHOOK] ERROR", error);
+    logError("[DISCORD_WEBHOOK] ERROR", error);
     throw error;
   }
 }
@@ -215,7 +237,7 @@ async function editOriginalResponse(appId: string, interactionToken: string, bod
       console.log("[EDIT_ORIGINAL] OK", res.status);
     }
   } catch (error) {
-    console.error("[EDIT_ORIGINAL] ERROR", error);
+    logError("[EDIT_ORIGINAL] ERROR", error);
   }
 }
 
@@ -488,12 +510,16 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
     (async () => {
       try {
         console.log("[TARGET_MODAL] queue start", parsed.ids.length);
-        const jobId = await createJob({
-          userId,
-          apiKey,
-          targetType,
-          memberIds: parsed.ids, // Store parsed IDs directly
-        });
+        const jobId = await withTimeout(
+          createJob({
+            userId,
+            apiKey,
+            targetType,
+            memberIds: parsed.ids, // Store parsed IDs directly
+          }),
+          6000,
+          "createJob"
+        );
         console.log("[TARGET_MODAL] queue done", jobId);
 
         await editOriginalResponse(DISCORD_APP_ID, interactionToken, {
@@ -504,11 +530,13 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
         console.log("[TARGET_MODAL] original response updated", jobId);
 
         // Start processing immediately so users do not need to click the button.
-        void processJobStatus(interaction, jobId).catch((err) => {
-          console.error("[JOB_STATUS] Auto-start failed", err);
-        });
+        safeWaitUntil(
+          processJobStatus(interaction, jobId).catch((err) => {
+            logError("[JOB_STATUS] Auto-start failed", err);
+          })
+        );
       } catch (error) {
-        console.error("[TARGET_MODAL] queue failed", error);
+        logError("[TARGET_MODAL] queue failed", error);
         await editOriginalResponse(DISCORD_APP_ID, interactionToken, {
           content: "Neon is unavailable. Processing without queue...",
           components: [],
@@ -530,18 +558,23 @@ async function handleTargetModal(interaction: any, targetType: string, apiKey: s
 }
 
 async function handleJobStatus(interaction: any, jobId: string) {
-  void processJobStatus(interaction, jobId).catch((error) => {
-    console.error("[JOB_STATUS] Unhandled failure", error);
-  });
+  safeWaitUntil(
+    processJobStatus(interaction, jobId).catch((error) => {
+      logError("[JOB_STATUS] Unhandled failure", error);
+    })
+  );
   return jsonResponse({
-    type: InteractionResponseType.DEFERRED_UPDATE_MESSAGE,
+    type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: makeEphemeralFlags(interaction),
+    },
   });
 }
 
 async function processJobStatus(interaction: any, jobId: string) {
   try {
     console.log("[JOB_STATUS] Processing job", jobId);
-    const job = await getJob(jobId);
+    const job = await withTimeout(getJob(jobId), 6000, "getJob");
     if (!job) {
       console.log("[JOB_STATUS] Job not found", jobId);
       await sendFollowup(interaction, "Job not found or expired.");
@@ -559,13 +592,17 @@ async function processJobStatus(interaction: any, jobId: string) {
       memberIds = JSON.parse(memberIds);
     }
     if (!memberIds || !Array.isArray(memberIds)) {
-      await updateJob(jobId, { status: "error", error: "Invalid stored IDs." });
+      await withTimeout(
+        updateJob(jobId, { status: "error", error: "Invalid stored IDs." }),
+        6000,
+        "updateJob"
+      );
       await sendFollowup(interaction, "Invalid stored IDs.");
       return;
     }
 
     if (job.status === "queued") {
-      await updateJob(jobId, { status: "running", next_index: 0 });
+      await withTimeout(updateJob(jobId, { status: "running", next_index: 0 }), 6000, "updateJob");
     }
 
     const nextIndex = Number(job.next_index || 0);
@@ -586,11 +623,15 @@ async function processJobStatus(interaction: any, jobId: string) {
 
     const newIndex = nextIndex + batch.length;
     const isComplete = newIndex >= memberIds.length;
-    await updateJob(jobId, {
-      results: mergedResults,
-      next_index: newIndex,
-      status: isComplete ? "complete" : "running",
-    });
+    await withTimeout(
+      updateJob(jobId, {
+        results: mergedResults,
+        next_index: newIndex,
+        status: isComplete ? "complete" : "running",
+      }),
+      6000,
+      "updateJob"
+    );
 
     if (!isComplete) {
       await sendFollowup(interaction, `Progress: ${newIndex}/${memberIds.length}. Click Check Status to continue.`, {
@@ -600,7 +641,7 @@ async function processJobStatus(interaction: any, jobId: string) {
     }
 
     const pdfBuffer = generatePdfReport(mergedResults);
-    await deleteJob(jobId);
+    await withTimeout(deleteJob(jobId), 6000, "deleteJob");
     await sendFollowup(interaction, "Here is your member analysis report.", {
       attachment: {
         filename: `member_vetting_report_${Date.now()}.pdf`,
@@ -608,7 +649,7 @@ async function processJobStatus(interaction: any, jobId: string) {
       },
     });
   } catch (error) {
-    console.error("[JOB_STATUS] Failed", jobId, error);
+    logError("[JOB_STATUS] Failed", { jobId, error });
   }
 }
 
@@ -655,7 +696,7 @@ async function processWithoutQueue(
       },
     });
   } catch (error) {
-    console.error("[NO_QUEUE] Failed", error);
+    logError("[NO_QUEUE] Failed", error);
     await editOriginalResponse(DISCORD_APP_ID, interaction.token, {
       content: "Neon is unavailable and processing failed. Please try again shortly.",
       components: [],
